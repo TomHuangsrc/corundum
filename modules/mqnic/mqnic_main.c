@@ -46,13 +46,13 @@ MODULE_LICENSE("Dual MIT/GPL");
 MODULE_VERSION(DRIVER_VERSION);
 MODULE_SUPPORTED_DEVICE(DRIVER_NAME);
 
-static const struct pci_device_id pci_ids[] = {
+static const struct pci_device_id mqnic_pci_id_table[] = {
     { PCI_DEVICE(0x1234, 0x1001) },
     { PCI_DEVICE(0x5543, 0x1001) },
     { 0 /* end */ }
 };
 
-MODULE_DEVICE_TABLE(pci, pci_ids);
+MODULE_DEVICE_TABLE(pci, mqnic_pci_id_table);
 
 static LIST_HEAD(mqnic_devices);
 static DEFINE_SPINLOCK(mqnic_devices_lock);
@@ -80,24 +80,6 @@ static unsigned int mqnic_get_free_id(void)
     return id;
 }
 
-struct mqnic_dev *mqnic_find_by_minor(unsigned minor)
-{
-    struct mqnic_dev *mqnic;
-
-    spin_lock(&mqnic_devices_lock);
-
-    list_for_each_entry(mqnic, &mqnic_devices, dev_list_node)
-        if (mqnic->misc_dev.minor == minor)
-            goto done;
-
-    mqnic = NULL;
-
-done:
-    spin_unlock(&mqnic_devices_lock);
-
-    return mqnic;
-}
-
 static irqreturn_t mqnic_interrupt(int irq, void *data)
 {
     struct mqnic_dev *mqnic = data;
@@ -107,7 +89,7 @@ static irqreturn_t mqnic_interrupt(int irq, void *data)
 
     for (k = 0; k < MQNIC_MAX_IF; k++)
     {
-        if (!mqnic->ndev[k])
+        if (unlikely(!mqnic->ndev[k]))
             continue;
 
         priv = netdev_priv(mqnic->ndev[k]);
@@ -131,7 +113,7 @@ static irqreturn_t mqnic_interrupt(int irq, void *data)
     return IRQ_HANDLED;
 }
 
-static int mqnic_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+static int mqnic_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
     int ret = 0;
     struct mqnic_dev *mqnic;
@@ -139,17 +121,16 @@ static int mqnic_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
     int k = 0;
 
-    dev_info(dev, "mqnic probe");
+    dev_info(dev, "mqnic PCI probe");
 
     if (!(mqnic = devm_kzalloc(dev, sizeof(*mqnic), GFP_KERNEL)))
     {
         return -ENOMEM;
     }
 
+    mqnic->dev = dev;
     mqnic->pdev = pdev;
     pci_set_drvdata(pdev, mqnic);
-
-    mqnic->misc_dev.minor = MISC_DYNAMIC_MINOR;
 
     // assign ID and add to list
     spin_lock(&mqnic_devices_lock);
@@ -194,7 +175,7 @@ static int mqnic_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
         goto fail_regions;
     }
 
-    mqnic->hw_regs_size = pci_resource_end(pdev, 0) - pci_resource_start(pdev, 0) + 1;
+    mqnic->hw_regs_size = pci_resource_len(pdev, 0);
     mqnic->hw_regs_phys = pci_resource_start(pdev, 0);
 
     // Map BAR
@@ -239,16 +220,25 @@ static int mqnic_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
     mqnic->if_csr_offset = ioread32(mqnic->hw_addr+MQNIC_REG_IF_CSR_OFFSET);
     dev_info(dev, "IF CSR offset: 0x%08x", mqnic->if_csr_offset);
 
-    // Allocate MSI IRQs
-    mqnic->msi_nvecs = pci_alloc_irq_vectors(pdev, 1, 32, PCI_IRQ_MSI);
-    if (mqnic->msi_nvecs < 0)
+    // check BAR size
+    if (mqnic->if_count*mqnic->if_stride > mqnic->hw_regs_size)
     {
+        ret = -EIO;
+        dev_err(dev, "Invalid BAR configuration (%d IF * 0x%x > 0x%lx)", mqnic->if_count, mqnic->if_stride, mqnic->hw_regs_size);
+        goto fail_map_bars;
+    }
+
+    // Allocate MSI IRQs
+    mqnic->irq_count = pci_alloc_irq_vectors(pdev, 1, 32, PCI_IRQ_MSI);
+    if (mqnic->irq_count < 0)
+    {
+        ret = -ENOMEM;
         dev_err(dev, "Failed to allocate IRQs");
         goto fail_map_bars;
     }
 
     // Set up interrupts
-    for (k = 0; k < mqnic->msi_nvecs; k++)
+    for (k = 0; k < mqnic->irq_count; k++)
     {
         ret = pci_request_irq(pdev, k, mqnic_interrupt, 0, mqnic, "mqnic%d-%d", mqnic->id, k);
         if (ret < 0)
@@ -256,6 +246,8 @@ static int mqnic_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
             dev_err(dev, "Failed to request IRQ");
             goto fail_irq;
         }
+
+        mqnic->irq_map[k] = pci_irq_vector(pdev, k);
     }
 
     // Set up I2C interfaces
@@ -304,6 +296,7 @@ static int mqnic_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
         }
     }
 
+    mqnic->misc_dev.minor = MISC_DYNAMIC_MINOR;
     mqnic->misc_dev.name = mqnic->name;
     mqnic->misc_dev.fops = &mqnic_fops;
     mqnic->misc_dev.parent = dev;
@@ -336,7 +329,7 @@ fail_init_netdev:
     pci_clear_master(pdev);
 fail_i2c:
     mqnic_remove_i2c(mqnic);
-    for (k = 0; k < mqnic->msi_nvecs; k++)
+    for (k = 0; k < mqnic->irq_count; k++)
     {
         pci_free_irq(pdev, k, mqnic);
     }
@@ -354,18 +347,13 @@ fail_enable_device:
     return ret;
 }
 
-static void mqnic_remove(struct pci_dev *pdev)
+static void mqnic_pci_remove(struct pci_dev *pdev)
 {
-    struct mqnic_dev *mqnic;
-    struct device *dev = &pdev->dev;
+    struct mqnic_dev *mqnic = pci_get_drvdata(pdev);
 
     int k = 0;
 
-    dev_info(dev, "mqnic remove");
-
-    if (!(mqnic = pci_get_drvdata(pdev))) {
-        return;
-    }
+    dev_info(&pdev->dev, "mqnic PCI remove");
 
     misc_deregister(&mqnic->misc_dev);
 
@@ -385,7 +373,7 @@ static void mqnic_remove(struct pci_dev *pdev)
 
     pci_clear_master(pdev);
     mqnic_remove_i2c(mqnic);
-    for (k = 0; k < mqnic->msi_nvecs; k++)
+    for (k = 0; k < mqnic->irq_count; k++)
     {
         pci_free_irq(pdev, k, mqnic);
     }
@@ -395,37 +383,29 @@ static void mqnic_remove(struct pci_dev *pdev)
     pci_disable_device(pdev);
 }
 
-static void mqnic_shutdown(struct pci_dev *pdev)
+static void mqnic_pci_shutdown(struct pci_dev *pdev)
 {
-    struct mqnic_dev *mqnic = pci_get_drvdata(pdev);
-    struct device *dev = &pdev->dev;
+    dev_info(&pdev->dev, "mqnic PCI shutdown");
 
-    dev_info(dev, "mqnic shutdown");
-
-    if (!mqnic) {
-        return;
-    }
-
-    // ensure DMA is disabled on shutdown
-    pci_clear_master(pdev);
+    mqnic_pci_remove(pdev);
 }
 
-static struct pci_driver pci_driver = {
+static struct pci_driver mqnic_pci_driver = {
     .name = DRIVER_NAME,
-    .id_table = pci_ids,
-    .probe = mqnic_probe,
-    .remove = mqnic_remove,
-    .shutdown = mqnic_shutdown
+    .id_table = mqnic_pci_id_table,
+    .probe = mqnic_pci_probe,
+    .remove = mqnic_pci_remove,
+    .shutdown = mqnic_pci_shutdown
 };
 
 static int __init mqnic_init(void)
 {
-    return pci_register_driver(&pci_driver);
+    return pci_register_driver(&mqnic_pci_driver);
 }
 
 static void __exit mqnic_exit(void)
 {
-    pci_unregister_driver(&pci_driver);
+    pci_unregister_driver(&mqnic_pci_driver);
 }
 
 module_init(mqnic_init);

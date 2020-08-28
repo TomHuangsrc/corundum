@@ -1,6 +1,6 @@
 # Corundum Readme
 
-GitHub repository: https://github.com/ucsdsysnet/corundum
+GitHub repository: https://github.com/corundum/corundum
 
 Google group: https://groups.google.com/d/forum/corundum-nic
 
@@ -33,9 +33,12 @@ devices.  Designs are included for the following FPGA boards:
 *  Exablaze ExaNIC X10 (Xilinx Kintex UltraScale XCKU035)
 *  Exablaze ExaNIC X25 (Xilinx Kintex UltraScale+ XCKU3P)
 *  NetFPGA SUME (Xilinx Virtex 7 XC7V690T)
+*  Xilinx Alveo U50 (Xilinx Virtex UltraScale+ XCU50)
+*  Xilinx Alveo U280 (Xilinx Virtex UltraScale+ XCU280)
 *  Xilinx VCU108 (Xilinx Virtex UltraScale XCVU095)
 *  Xilinx VCU118 (Xilinx Virtex UltraScale+ XCVU9P)
 *  Xilinx VCU1525 (Xilinx Virtex UltraScale+ XCVU9P)
+*  Xilinx ZCU106 (Xilinx Zynq UltraScale+ XCZU7EV)
 
 For operation at 10G and 25G, Corundum uses the open source 10G/25G MAC and
 PHY modules from the verilog-ethernet repository, no extra licenses are
@@ -206,7 +209,9 @@ individual test scripts can be run with python directly.
 
 ## Publications
 
-- A. Forencich, A. C. Snoeren, G. Porter, G. Papen, *Corundum: An Open-Source 100-Gbps NIC,* in FCCM'20, [Paper](https://www.cse.ucsd.edu/~snoeren/papers/corundum-fccm20.pdf), [Slides](http://fccm.org/....pdf)
+- A. Forencich, A. C. Snoeren, G. Porter, G. Papen, *Corundum: An Open-Source 100-Gbps NIC,* in FCCM'20, [Paper](https://www.cse.ucsd.edu/~snoeren/papers/corundum-fccm20.pdf), [Presentation](https://www.fccm.org/past/2020/forums/topic/corundum-an-open-source-100-gbps-nic/)
+
+- J. A. Forencich, *System-Level Considerations for Optical Switching in Data Center Networks*, [Paper](https://escholarship.org/uc/item/3mc9070t)
 
 ## Citation
 If you use Corundum in your project please cite one of the following papers
@@ -225,7 +230,7 @@ and/or link to the github project:
     title = {System-Level Considerations for Optical Switching in Data Center Networks},
     school = {UC San Diego},
     year = {2020},
-    url = {https://escholarship.org/uc/item/???},
+    url = {https://escholarship.org/uc/item/3mc9070t},
 }
 ```
 

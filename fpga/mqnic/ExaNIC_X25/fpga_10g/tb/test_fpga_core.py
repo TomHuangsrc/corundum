@@ -141,8 +141,6 @@ def bench():
     rst = Signal(bool(0))
     current_test = Signal(intbv(0)[8:])
 
-    clk_156mhz = Signal(bool(0))
-    rst_156mhz = Signal(bool(0))
     clk_250mhz = Signal(bool(0))
     rst_250mhz = Signal(bool(0))
     m_axis_rq_tready = Signal(bool(0))
@@ -292,7 +290,7 @@ def bench():
 
     dev.functions[0].msi_multiple_message_capable = 5
 
-    dev.functions[0].configure_bar(0, 2**BAR0_APERTURE)
+    dev.functions[0].configure_bar(0, 2**BAR0_APERTURE, ext=True, prefetch=True)
 
     rc.make_port().connect(dev)
 
@@ -487,8 +485,6 @@ def bench():
         clk=clk,
         rst=rst,
         current_test=current_test,
-        clk_156mhz=clk_156mhz,
-        rst_156mhz=rst_156mhz,
         clk_250mhz=user_clk,
         rst_250mhz=user_reset,
         sfp_1_led=sfp_1_led,
@@ -655,9 +651,6 @@ def bench():
         current_test.next = 1
 
         yield rc.enumerate(enable_bus_mastering=True, configure_msi=True)
-
-        dev_pf0_bar0 = dev.functions[0].bar[0] & 0xfffffffc
-        dev_pf0_bar1 = dev.functions[0].bar[1] & 0xfffffffc
 
         yield delay(100)
 

@@ -144,8 +144,6 @@ def bench():
     rst = Signal(bool(0))
     current_test = Signal(intbv(0)[8:])
 
-    clk_156mhz = Signal(bool(0))
-    rst_156mhz = Signal(bool(0))
     clk_250mhz = Signal(bool(0))
     rst_250mhz = Signal(bool(0))
     user_sw = Signal(intbv(0)[2:])
@@ -383,7 +381,7 @@ def bench():
 
     dev.functions[0].msi_multiple_message_capable = 5
 
-    dev.functions[0].configure_bar(0, 2**BAR0_APERTURE)
+    dev.functions[0].configure_bar(0, 2**BAR0_APERTURE, ext=True, prefetch=True)
 
     rc.make_port().connect(dev)
 
@@ -583,8 +581,6 @@ def bench():
         clk=clk,
         rst=rst,
         current_test=current_test,
-        clk_156mhz=clk_156mhz,
-        rst_156mhz=rst_156mhz,
         clk_250mhz=user_clk,
         rst_250mhz=user_reset,
         user_led_g=user_led_g,
@@ -866,21 +862,11 @@ def bench():
 
         yield rc.enumerate(enable_bus_mastering=True, configure_msi=True)
 
-        dev_pf0_bar0 = dev.functions[0].bar[0] & 0xfffffffc
-        dev_pf0_bar1 = dev.functions[0].bar[1] & 0xfffffffc
-
         yield delay(100)
 
         yield clk.posedge
         print("test 2: init NIC")
         current_test.next = 2
-
-        #data = yield from rc.mem_read(dev_pf0_bar0+0x20000+0x10, 4);
-        #print(data)
-
-        #yield delay(1000)
-
-        #raise StopSimulation
 
         yield from driver.init_dev(dev.functions[0].get_id())
         yield from driver.interfaces[0].open()
